@@ -523,6 +523,94 @@ describe("exec approvals", () => {
     expect(String(agent.idempotencyKey)).toContain(approvalId);
   });
 
+  it("replays Discord node approvals with the canonical messaging target", async () => {
+    let invokeParams: unknown;
+
+    mockAcceptedApprovalFlow({
+      onNodeInvoke: (params) => {
+        const invoke = params as { command?: string };
+        if (invoke.command === "system.run.prepare") {
+          return buildPreparedSystemRunPayload(params);
+        }
+        if (invoke.command === "system.run") {
+          invokeParams = params;
+          return { payload: { success: true, stdout: "ok" } };
+        }
+        return undefined;
+      },
+    });
+
+    const tool = createExecTool({
+      host: "node",
+      ask: "always",
+      approvalRunningNoticeMs: 0,
+      sessionKey: "agent:main:discord:channel:123",
+      messageProvider: "discord",
+      currentChannelId: "123",
+      currentMessagingTarget: "channel:123",
+      accountId: "default",
+      currentThreadTs: "456",
+    });
+
+    const result = await tool.execute("call-discord-canonical", { command: "whoami" });
+    expect(result.details.status).toBe("completed");
+    const nodeInvokeParams = requireRecord(
+      requireRecord(invokeParams, "node invoke").params,
+      "node invoke params",
+    );
+    expect(nodeInvokeParams.turnSourceChannel).toBe("discord");
+    expect(nodeInvokeParams.turnSourceTo).toBe("channel:123");
+    expect(nodeInvokeParams.turnSourceAccountId).toBe("default");
+    expect(nodeInvokeParams.turnSourceThreadId).toBe("456");
+  });
+
+  it("falls back to the raw channel id when no canonical messaging target exists", async () => {
+    let invokeParams: unknown;
+
+    mockAcceptedApprovalFlow({
+      onNodeInvoke: (params) => {
+        const invoke = params as { command?: string };
+        if (invoke.command === "system.run.prepare") {
+          return buildPreparedSystemRunPayload(params);
+        }
+        if (invoke.command === "system.run") {
+          invokeParams = params;
+          return { payload: { success: true, stdout: "ok" } };
+        }
+        return undefined;
+      },
+    });
+
+    const tool = createExecTool({
+      host: "node",
+      ask: "always",
+      approvalRunningNoticeMs: 0,
+      sessionKey: "agent:main:telegram:direct:123",
+      messageProvider: "telegram",
+      currentChannelId: "123",
+      accountId: "default",
+    });
+
+    const result = await tool.execute("call-raw-channel-fallback", { command: "whoami" });
+    expectPendingApprovalText(result, {
+      command: "whoami",
+      host: "node",
+      nodeId: "node-1",
+      interactive: true,
+      allowedDecisions: "allow-once|deny",
+      cwdText: "(node default)",
+    });
+
+    await expect
+      .poll(
+        () =>
+          (invokeParams as { params?: { turnSourceTo?: string } } | undefined)?.params
+            ?.turnSourceTo,
+        { timeout: 2000, interval: 1 },
+      )
+      .toBe("123");
+  });
+
   it("skips approval when node allowlist is satisfied", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-test-bin-"));
     const binDir = path.join(tempDir, "bin");

@@ -201,6 +201,34 @@ describe("createOpenClawCodingTools exec notification routing", () => {
       }),
     );
   });
+
+  it("carries the canonical messaging target into exec defaults", () => {
+    createLazyExecToolMock.mockClear();
+    createOpenClawCodingTools({
+      messageProvider: "discord",
+      currentChannelId: "123",
+      currentMessagingTarget: "channel:123",
+      currentThreadTs: "456",
+      agentAccountId: "default",
+      toolConstructionPlan: {
+        includeBaseCodingTools: false,
+        includeShellTools: true,
+        includeChannelTools: false,
+        includeOpenClawTools: false,
+        includePluginTools: false,
+      },
+    });
+
+    expect(createLazyExecToolMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageProvider: "discord",
+        currentChannelId: "123",
+        currentMessagingTarget: "channel:123",
+        currentThreadTs: "456",
+        accountId: "default",
+      }),
+    );
+  });
 });
 
 describe("createOpenClawCodingTools sandbox filesystem ownership", () => {

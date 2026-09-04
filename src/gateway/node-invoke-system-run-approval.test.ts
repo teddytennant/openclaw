@@ -996,6 +996,38 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
     expectAllowOnceForwardingResult(result);
   });
 
+  test("accepts trusted backend Discord replay when the canonical channel target matches", () => {
+    const discordContext = {
+      sessionKey: "agent:main:discord:channel:123",
+      turnSourceChannel: "discord",
+      turnSourceTo: "channel:123",
+      turnSourceAccountId: "default",
+      turnSourceThreadId: "456",
+    } satisfies Omit<Partial<ApprovedRunParamOverrides>, "command" | "rawCommand">;
+    const result = sanitizeApprovedChatReplay({
+      record: makeChatRecord(discordContext),
+      rawParams: discordContext,
+    });
+
+    expectAllowOnceForwardingResult(result);
+  });
+
+  test("rejects trusted backend Discord replay when the raw channel id is used instead of the canonical target", () => {
+    const discordContext = {
+      sessionKey: "agent:main:discord:channel:123",
+      turnSourceChannel: "discord",
+      turnSourceTo: "channel:123",
+      turnSourceAccountId: "default",
+      turnSourceThreadId: "456",
+    } satisfies Omit<Partial<ApprovedRunParamOverrides>, "command" | "rawCommand">;
+    const result = sanitizeApprovedChatReplay({
+      record: makeChatRecord(discordContext),
+      rawParams: { ...discordContext, turnSourceTo: "123" },
+    });
+
+    expectRejectedForwardingResult(result, "APPROVAL_CLIENT_MISMATCH", "not valid for this client");
+  });
+
   test.each([
     ["session binding changes", { sessionKey: "agent:main:telegram:direct:99999" }],
     ["session binding casing changes", { sessionKey: "agent:MAIN:telegram:direct:12345" }],
