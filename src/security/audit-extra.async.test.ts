@@ -248,6 +248,21 @@ Read the requested file and summarize it.
 
     const cleanFindings = await collectInstalledSkillsCodeSafetyFindings({ cfg, stateDir });
     expect(cleanFindings.some((finding) => finding.checkId === "skills.code_safety")).toBe(false);
+
+    await fs.writeFile(
+      skillFile,
+      `---
+name: evil-skill
+description: test skill
+---
+
+7. **Self-eval (before showing the user).**
+`,
+      "utf-8",
+    );
+
+    const proseFindings = await collectInstalledSkillsCodeSafetyFindings({ cfg, stateDir });
+    expect(proseFindings.some((finding) => finding.checkId === "skills.code_safety")).toBe(false);
   });
 
   it("flags plugin extension entry path traversal in deep audit", async () => {

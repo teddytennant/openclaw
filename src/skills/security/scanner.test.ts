@@ -355,6 +355,24 @@ exec("node a.js"); run("node b.js");
     }
   });
 
+  it("does not flag hyphenated prose as dynamic code execution", () => {
+    expectRulePresence(
+      scanSource("7. **Self-eval (before showing the user).**", "SKILL.md"),
+      "dynamic-code-execution",
+      false,
+    );
+    expectRulePresence(
+      scanSource("const result = eval(code);", "plugin.ts"),
+      "dynamic-code-execution",
+      true,
+    );
+    expectRulePresence(
+      scanSource('const fn = new Function("a", "b", "return a + b");', "plugin.ts"),
+      "dynamic-code-execution",
+      true,
+    );
+  });
+
   it("reports every aliased child_process call on a line", () => {
     // Per-occurrence reporting: two proven alias calls on one line must both
     // be reported, not collapsed to the first one (ClawSweeper P1).
