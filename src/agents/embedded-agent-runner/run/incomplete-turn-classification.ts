@@ -9,6 +9,7 @@ import {
 import type { AgentMessage } from "../../runtime/index.js";
 import { assessLastAssistantMessage } from "../thinking.js";
 import { resolveCurrentAttemptAssistant } from "./attempt-terminal-evidence.js";
+import { resolveFinalAssistantRawText, resolveFinalAssistantVisibleText } from "./helpers.js";
 import type { EmbeddedRunAttemptResult } from "./types.js";
 
 export type IncompleteTurnAttempt = Pick<
@@ -110,6 +111,19 @@ export function hasOnlySilentAssistantReply(assistantTexts?: readonly string[]):
   );
 }
 
+/**
+ * Payload and stream paths strip exact NO_REPLY from assistantTexts. The
+ * authored token still lives on the completed assistant message.
+ */
+export function hasOnlySilentAssistantTurn(attempt: IncompleteTurnAttempt): boolean {
+  const assistant = resolveCurrentAttemptAssistant(attempt);
+  const authoredTexts = [
+    resolveFinalAssistantVisibleText(assistant),
+    resolveFinalAssistantRawText(assistant),
+  ].filter((text): text is string => Boolean(text));
+  return hasOnlySilentAssistantReply([...(attempt.assistantTexts ?? []), ...authoredTexts]);
+}
+
 export function isReasoningOnlyAssistantTurn(message: unknown): boolean {
   if (!message || typeof message !== "object") {
     return false;
@@ -183,6 +197,7 @@ export function classifyAssistantTurn(params: {
   const assistant = resolveCurrentAttemptAssistant(params.attempt);
   const visibleText = joinAssistantTexts(params.attempt.assistantTexts);
   const reasoningOnly = isReasoningOnlyAssistantTurn(assistant);
+  const silentReply = hasOnlySilentAssistantTurn(params.attempt);
   const nonVisibleEligibleForSilentReply =
     params.payloadCount === 0 &&
     visibleText.length === 0 &&
@@ -195,7 +210,7 @@ export function classifyAssistantTurn(params: {
     assistant,
     visibleText,
     reasoningOnly,
-    emptyResponse: nonVisibleEligibleForSilentReply && !reasoningOnly,
+    emptyResponse: nonVisibleEligibleForSilentReply && !reasoningOnly && !silentReply,
     nonVisibleEligibleForSilentReply,
   };
 }

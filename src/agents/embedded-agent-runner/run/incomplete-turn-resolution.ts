@@ -24,7 +24,7 @@ import {
 } from "./attempt-terminal-evidence.js";
 import {
   classifyAssistantTurn,
-  hasOnlySilentAssistantReply,
+  hasOnlySilentAssistantTurn,
   isIncompleteTerminalAssistantTurn,
   joinAssistantTexts,
   type IncompleteTurnAttempt,
@@ -101,7 +101,7 @@ export function resolveIncompleteTurnPayloadText(params: {
   }
 
   if (
-    hasOnlySilentAssistantReply(params.attempt.assistantTexts) ||
+    hasOnlySilentAssistantTurn(params.attempt) ||
     params.attempt.hasToolMediaBlockReply ||
     hasCommittedMessagingToolDeliveryEvidence(params.attempt)
   ) {
@@ -177,7 +177,7 @@ export function shouldRetryMissingAssistantTurn(params: {
     return false;
   }
 
-  if (hasOnlySilentAssistantReply(params.attempt.assistantTexts)) {
+  if (hasOnlySilentAssistantTurn(params.attempt)) {
     return false;
   }
 

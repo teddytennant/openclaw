@@ -16,7 +16,7 @@ import {
 } from "./attempt-terminal-evidence.js";
 import {
   classifyAssistantTurn,
-  hasOnlySilentAssistantReply,
+  hasOnlySilentAssistantTurn,
   hasPositiveOutputTokenUsage,
   isOllamaIncompleteTurnProvider,
   isReasoningOnlyAssistantTurn,
@@ -125,7 +125,7 @@ export function shouldTreatEmptyAssistantReplyAsSilent(params: {
   const explicitSilentReply =
     params.payloadCount === 0 &&
     assistant?.stopReason !== "error" &&
-    hasOnlySilentAssistantReply(params.attempt.assistantTexts);
+    hasOnlySilentAssistantTurn(params.attempt);
   const tolerateSideEffects = terminalReplyOptional || explicitSilentReply;
   if (
     !params.allowEmptyAssistantReplyAsSilent ||
@@ -340,7 +340,7 @@ export function resolveSettledToolTerminalContinuationInstruction(params: {
   );
   if (
     params.payloadCount !== 0 ||
-    (!params.allowEmptyStopContinuation && hasOnlySilentAssistantReply(attempt.assistantTexts)) ||
+    (!params.allowEmptyStopContinuation && hasOnlySilentAssistantTurn(attempt)) ||
     params.hasTerminalToolPresentation ||
     params.aborted ||
     ((params.timedOut || terminal.kind === "timeout") && !idlePromptTimeout) ||

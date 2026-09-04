@@ -102,6 +102,38 @@ function settledFailedAttempt(): EmbeddedRunAttemptWithReceiptEvidence {
   return { ...attempt, successfulNestedToolNames: ["memory_search"] };
 }
 
+function settledSilentNoReplyAttempt(): EmbeddedRunAttemptWithReceiptEvidence {
+  const toolUseAssistant = buildEmbeddedRunnerAssistant({
+    stopReason: "toolUse",
+    content: [{ type: "toolCall", id: "tool-exec", name: "exec", arguments: {} }],
+  });
+  const silentAssistant = buildEmbeddedRunnerAssistant({
+    stopReason: "stop",
+    content: [{ type: "text", text: SILENT_REPLY_TOKEN }],
+  });
+  const messagesSnapshot = [
+    {
+      role: "user",
+      content: [{ type: "text", text: "If exit code is 0, return exactly NO_REPLY." }],
+    },
+    toolUseAssistant,
+    { role: "toolResult", toolCallId: "tool-exec", toolName: "exec", isError: false },
+    silentAssistant,
+  ] as never;
+  const attempt = makeEmbeddedRunnerAttempt({
+    assistantTexts: [],
+    toolMetas: [{ toolName: "exec", toolCallId: "tool-exec", isError: false, replaySafe: false }],
+    itemLifecycle: { startedCount: 1, completedCount: 1, activeCount: 0 },
+    messagesSnapshot,
+    lastAssistant: silentAssistant,
+    currentAttemptAssistant: silentAssistant,
+    currentAttemptCompletedAssistant: silentAssistant,
+    replayMetadata: { hadPotentialSideEffects: true, replaySafe: false },
+    currentAttemptReplayMetadata: { hadPotentialSideEffects: false, replaySafe: true },
+  });
+  return { ...attempt, successfulNestedToolNames: [] };
+}
+
 let admittedRunContext: AdmittedRunContext;
 
 function finalizationInput(attempt: ReturnType<typeof settledFailedAttempt>) {
@@ -211,6 +243,32 @@ describe("resolveSettledTurnFinalizationRequest", () => {
     expect(request({ trigger: "user", terminalReplyExpectation: "required" })).toBeNull();
   });
 
+  it("keeps stripped exact NO_REPLY silent after settled tools", () => {
+    const attempt = settledSilentNoReplyAttempt();
+    const request = resolveSettledTurnFinalizationRequest({
+      runParams: {
+        sessionId: "session:cron-noreply",
+        runId: "run:cron-noreply",
+        trigger: "cron",
+        allowEmptyAssistantReplyAsSilent: true,
+        terminalReplyExpectation: "required",
+      } as never,
+      attempt,
+      activeErrorContext: { provider: "openai", model: "gpt-5.6-luna" },
+      modelApi: "openai-responses",
+      executionContract: undefined,
+      payloadsWithToolMedia: [],
+      hasTerminalToolPresentation: false,
+      terminalState: resolveEmbeddedRunAttemptTerminalState({
+        attempt,
+        assistant: attempt.currentAttemptAssistant,
+      }),
+      settledTurnFinalizationAvailable: true,
+    });
+
+    expect(request).toBeNull();
+  });
+
   it("requires an available finalizer and no visible structured error", () => {
     const assistant = buildEmbeddedRunnerAssistant({
       stopReason: "toolUse",
@@ -281,6 +339,27 @@ describe("prepareTerminalWithSettledTurnFinalization", () => {
   afterEach(() => {
     admission.close();
     vi.useRealTimers();
+  });
+
+  it("keeps a stripped exact NO_REPLY silent instead of substituting the settled-turn fallback", async () => {
+    const attempt = settledSilentNoReplyAttempt();
+    const input = finalizationInput(attempt);
+    input.terminalBase.runParams = {
+      ...input.terminalBase.runParams,
+      trigger: "cron",
+      allowEmptyAssistantReplyAsSilent: true,
+      terminalReplyExpectation: "required",
+    } as never;
+
+    const result = await prepareTerminalWithSettledTurnFinalization(input);
+
+    expect(backendMocks.runSettledFinalization).not.toHaveBeenCalled();
+    expect(result.finalizationOutcome).toBe("not-attempted");
+    expect(result.attempt).toBe(attempt);
+    expect(result.prepared.payloadsWithToolMedia).toEqual([]);
+    expect(result.prepared.payloadsWithToolMedia).not.toEqual([
+      expect.objectContaining({ text: SETTLED_TOOL_FINALIZATION_FALLBACK_TEXT }),
+    ]);
   });
 
   it.each([false, true])(
