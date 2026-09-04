@@ -647,6 +647,15 @@ function createCronPromptExecutor(
         );
         const bootstrapPromptWarningSignature =
           bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1];
+        const currentChannelId = await resolveCurrentChannelTarget({
+          channel: messageChannel,
+          to: params.resolvedDelivery.to,
+          threadId: params.resolvedDelivery.threadId,
+        });
+        const currentThreadTs =
+          params.resolvedDelivery.threadId == null
+            ? undefined
+            : String(params.resolvedDelivery.threadId);
         // CLI providers can resume provider-native sessions; embedded providers
         // use OpenClaw's transcript/session file plus prompt-cache affinity.
         if (cliExecution) {
@@ -703,6 +712,8 @@ function createCronPromptExecutor(
                 skillsSnapshot: params.skillsSnapshot,
                 messageChannel,
                 agentAccountId: params.resolvedDelivery.accountId,
+                currentChannelId,
+                currentThreadTs,
                 sourceReplyDeliveryMode,
                 requireExplicitMessageTarget: sourceDelivery.messageTool.requireExplicitTarget,
                 cliSessionBindingFacts: {
@@ -778,11 +789,6 @@ function createCronPromptExecutor(
           agentSessionKey: params.agentSessionKey,
           provider: providerOverride,
           model: modelOverride,
-        });
-        const currentChannelId = await resolveCurrentChannelTarget({
-          channel: messageChannel,
-          to: params.resolvedDelivery.to,
-          threadId: params.resolvedDelivery.threadId,
         });
         // Embedded runs receive both the explicit route and the current-channel
         // id so message-tool policy can target the same chat as fallback delivery.

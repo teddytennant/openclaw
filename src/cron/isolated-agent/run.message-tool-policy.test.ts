@@ -1,10 +1,12 @@
 // Message tool policy tests cover message tool availability during cron runs.
 import { createRequireRecord } from "openclaw/plugin-sdk/test-fixtures";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildCliMcpGrantContext } from "../../agents/cli-runner/mcp-grant-context.js";
 import { createAgentLifecycleTerminalBackstop } from "../../auto-reply/reply/agent-lifecycle-terminal.js";
 import { getAgentEventLifecycleGeneration } from "../../infra/agent-events.js";
 import { createSourceDeliveryPlan } from "../../infra/outbound/source-delivery-plan.js";
 import type { SkillSnapshot } from "../../skills/types.js";
+import { normalizeDeliveryContext } from "../../utils/delivery-context.shared.js";
 import { applyJobPatch } from "../service/jobs.js";
 import type { CronDeliveryMode } from "../types.js";
 import type { MutableCronSession } from "./run-session-state.js";
@@ -802,6 +804,125 @@ describe("runCronIsolatedAgentTurn message tool policy", () => {
       expectRecordFields(getMockCallArg(runCliAgentMock, 0, 0, "CLI run"), {}, "CLI run params")
         .transcriptPrompt,
     ).toBeUndefined();
+  });
+
+  function mockTelegramTopicPlugin() {
+    getChannelPluginMock.mockImplementation((channelId: string) =>
+      channelId === "telegram"
+        ? {
+            threading: {
+              resolveCurrentChannelId: ({
+                to,
+                threadId,
+              }: {
+                to: string;
+                threadId?: string | number | null;
+              }) => (threadId == null ? to : `${to}:topic:${threadId}`),
+            },
+          }
+        : undefined,
+    );
+  }
+
+  function execCompletionRouteFromCliRun(runParams: Record<string, unknown>) {
+    const grant = buildCliMcpGrantContext({
+      run: runParams as never,
+      config: {},
+      requireExplicitMessageTarget: true,
+      agentId: "default",
+      modelProvider: "openai",
+      modelId: "gpt-5.6-sol",
+    });
+    // Same construction bash exec uses for notifyOnExit completion events.
+    return normalizeDeliveryContext({
+      channel: grant.messageProvider,
+      to: grant.currentChannelId,
+      accountId: grant.accountId,
+      threadId: grant.currentThreadTs,
+    });
+  }
+
+  it("keeps the Telegram topic route on Codex CLI cron background exec completions", async () => {
+    mockCliAnnounceRun();
+    mockTelegramTopicPlugin();
+    resolveCronDeliveryPlanMock.mockReturnValue(
+      makeAnnounceDeliveryPlan({
+        channel: "telegram",
+        to: "-1003774691294",
+        threadId: 47,
+      }),
+    );
+    resolveDeliveryTargetMock.mockResolvedValue(
+      makeResolvedAnnounceTarget({
+        channel: "telegram",
+        to: "-1003774691294",
+        threadId: 47,
+      }),
+    );
+
+    await runCronIsolatedAgentTurn({
+      ...makeParams(),
+      job: makeAnnounceMessageToolJob({
+        delivery: { channel: "telegram", to: "-1003774691294", threadId: 47 },
+      }),
+    });
+
+    expect(runCliAgentMock).toHaveBeenCalledTimes(1);
+    const cliRun = expectRecordFields(
+      getMockCallArg(runCliAgentMock, 0, 0, "CLI run"),
+      {
+        messageChannel: "telegram",
+        currentChannelId: "-1003774691294:topic:47",
+        currentThreadTs: "47",
+      },
+      "CLI run params",
+    );
+    expect(execCompletionRouteFromCliRun(cliRun)).toMatchObject({
+      channel: "telegram",
+      to: "-1003774691294:topic:47",
+      threadId: "47",
+    });
+  });
+
+  it("does not invent a Telegram topic on CLI cron completions without one", async () => {
+    mockCliAnnounceRun();
+    mockTelegramTopicPlugin();
+    resolveCronDeliveryPlanMock.mockReturnValue(
+      makeAnnounceDeliveryPlan({
+        channel: "telegram",
+        to: "-1003774691294",
+      }),
+    );
+    resolveDeliveryTargetMock.mockResolvedValue(
+      makeResolvedAnnounceTarget({
+        channel: "telegram",
+        to: "-1003774691294",
+      }),
+    );
+
+    await runCronIsolatedAgentTurn({
+      ...makeParams(),
+      job: makeAnnounceMessageToolJob({
+        delivery: { channel: "telegram", to: "-1003774691294" },
+      }),
+    });
+
+    expect(runCliAgentMock).toHaveBeenCalledTimes(1);
+    const cliRun = expectRecordFields(
+      getMockCallArg(runCliAgentMock, 0, 0, "CLI run"),
+      {
+        messageChannel: "telegram",
+        currentChannelId: "-1003774691294",
+      },
+      "CLI run params",
+    );
+    expect(cliRun.currentThreadTs).toBeUndefined();
+    const completionRoute = execCompletionRouteFromCliRun(cliRun);
+    expect(completionRoute).toMatchObject({
+      channel: "telegram",
+      to: "-1003774691294",
+    });
+    expect(completionRoute?.threadId).toBeUndefined();
   });
 
   it("binds the resolved delivery account to account-implicit CLI message sends", async () => {
